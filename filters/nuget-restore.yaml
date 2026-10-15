@@ -1,0 +1,41 @@
+# aliases: nuget.exe, NuGet.exe
+name: "nuget-restore"
+version: 1
+description: "nuget restore: diagnostics and per-project result lines only"
+
+match:
+  command: "nuget"
+  subcommand: "restore"
+
+streams:
+  - stdout
+  - stderr
+
+pipeline:
+  - action: "strip_ansi"
+  - action: "keep_lines"
+    pattern: '\b(error|warning|Error|Warning)\b|\bNU\d{4}\b|^\s*Restored |already installed|up-to-date|^\s*Added package|^\s*Failed|Unable to'
+  - action: "truncate_lines"
+    max: 250
+  - action: "head"
+    n: 40
+    overflow_msg: "... more lines (truncated by snip; full text: snip proxy -- <cmd>)"
+  - action: "on_empty"
+    message: "nuget restore: no errors or warnings"
+
+on_error: "passthrough"
+
+tests:
+  - name: "feed listing and progress dropped"
+    input: |
+      MSBuild auto-detection: using msbuild version '17.14' from 'C:\VS\MSBuild\Current\bin'.
+      Feeds used:
+        https://api.nuget.org/v3/index.json
+      Restoring packages for C:\r\a.csproj...
+      Committing restore...
+      Writing assets file to disk. Path: C:\r\obj\project.assets.json
+      Restored C:\r\a.csproj (in 210 ms).
+      C:\r\a.csproj : warning NU1603: Foo 1.0 depends on Bar (>= 2.0) but Bar 2.0 was not found.
+    expected: |
+      Restored C:\r\a.csproj (in 210 ms).
+      C:\r\a.csproj : warning NU1603: Foo 1.0 depends on Bar (>= 2.0) but Bar 2.0 was not found.

@@ -1,0 +1,55 @@
+# aliases: vstest.console, VSTest.Console.exe
+name: "vstest-console"
+version: 1
+description: "vstest.console: drop banner and passed tests, keep failures and totals"
+
+match:
+  command: "vstest.console.exe"
+  exclude_flags: ["/ListTests", "/lt", "--ListTests", "-lt", "/?", "--help", "-?"]
+
+streams:
+  - stdout
+  - stderr
+
+pipeline:
+  - action: "strip_ansi"
+  - action: "remove_lines"
+    pattern: '^\s*$|^\s+Passed\s|^(VSTest version|Microsoft \(R\) Test Execution|Copyright \(c\)|Starting test execution|A total of \d+ test files? matched)'
+  - action: "truncate_lines"
+    max: 300
+  - action: "head"
+    n: 100
+    overflow_msg: "... more lines (truncated by snip; full text: snip proxy -- <cmd>)"
+
+on_error: "passthrough"
+
+tests:
+  - name: "banner and passed tests removed"
+    input: |
+      VSTest version 17.14.0 (x64)
+
+      Starting test execution, please wait...
+      A total of 1 test files matched the specified pattern.
+        Passed TestA [12 ms]
+        Failed TestB [3 ms]
+        Error Message:
+         Assert.AreEqual failed. Expected:<1>. Actual:<2>.
+        Stack Trace:
+           at Tests.TestB() in C:\r\T.cs:line 20
+
+      Test Run Failed.
+      Total tests: 2
+           Passed: 1
+           Failed: 1
+       Total time: 1.2 Seconds
+    expected: |2
+        Failed TestB [3 ms]
+        Error Message:
+         Assert.AreEqual failed. Expected:<1>. Actual:<2>.
+        Stack Trace:
+           at Tests.TestB() in C:\r\T.cs:line 20
+      Test Run Failed.
+      Total tests: 2
+           Passed: 1
+           Failed: 1
+       Total time: 1.2 Seconds

@@ -1,0 +1,45 @@
+# aliases: ninja.exe
+name: "ninja"
+version: 1
+description: "ninja: drop [n/m] progress, keep diagnostics and FAILED blocks"
+
+match:
+  command: "ninja"
+  exclude_flags: ["-t", "--version", "-h", "--help"]
+
+streams:
+  - stdout
+  - stderr
+
+pipeline:
+  - action: "strip_ansi"
+  - action: "keep_lines"
+    pattern: '^\S.*\b(fatal )?(error|warning)( [A-Za-z]*\d+)?\s*:|^\S.*\bnote:|^FAILED:|^ninja: '
+  - action: "truncate_lines"
+    max: 300
+  - action: "head"
+    n: 80
+    overflow_msg: "... more lines (truncated by snip; full text: snip proxy -- <cmd>)"
+  - action: "on_empty"
+    message: "ninja: build ok"
+
+on_error: "passthrough"
+
+tests:
+  - name: "progress dropped, failure kept"
+    input: |
+      [1/3] Building CXX object CMakeFiles/app.dir/a.cpp.obj
+      [2/3] Building CXX object CMakeFiles/app.dir/b.cpp.obj
+      FAILED: CMakeFiles/app.dir/b.cpp.obj
+      C:\r\b.cpp(12): error C2065: 'foo': undeclared identifier
+      ninja: build stopped: subcommand failed.
+    expected: |
+      FAILED: CMakeFiles/app.dir/b.cpp.obj
+      C:\r\b.cpp(12): error C2065: 'foo': undeclared identifier
+      ninja: build stopped: subcommand failed.
+  - name: "clean build collapses to one line"
+    input: |
+      [1/2] Building CXX object CMakeFiles/app.dir/a.cpp.obj
+      [2/2] Linking CXX executable app.exe
+    expected: |
+      ninja: build ok

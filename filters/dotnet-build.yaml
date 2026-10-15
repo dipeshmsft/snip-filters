@@ -1,0 +1,152 @@
+# Overrides the embedded dotnet-build filter. Agent shells are PTYs, so the
+# .NET terminal logger turns on and emits hundreds of "(0.4s)" progress lines;
+# -tl:off restores the classic logger this pipeline parses.
+name: "dotnet-build"
+version: 3
+description: "dotnet build: classic logger, errors verbatim, coded warnings collapsed to counts"
+
+match:
+  command: "dotnet"
+  subcommand: "build"
+  exclude_flags: ["-h", "--help", "-?", "/?"]
+
+inject:
+  args: ["-tl:off"]
+  skip_if_present: ["-tl", "--tl", "/tl"]
+streams:
+  - stdout
+  - stderr
+
+pipeline:
+  - action: "strip_ansi"
+  # The real "Build FAILED." line is consumed by the state machine transition,
+  # so re-emit the overall result as a distinct line that survives it.
+  - action: "aggregate"
+    patterns:
+      failed: '^Build (FAILED|failed)'
+      ok: '^Build succeeded\.'
+    format: '{{if gt .failed 0}}Result: Build FAILED{{else if gt .ok 0}}Result: Build succeeded{{end}}'
+    append: true
+  # MSBuild repeats every diagnostic in its end-of-build summary (indented at
+  # normal verbosity, at column 0 at -v:q). Keep diagnostics from the main log
+  # only; in the summary keep just the counts. Time Elapsed ends a build, so
+  # scripts running several builds are handled.
+  - action: "state_machine"
+    states:
+      start:
+        keep: '\b(fatal )?(error|warning)( [A-Za-z]*\d+)?\s*:|^Build failed with exit code|^\s+\S.* -> .*\.exe$|^Result: '
+        until: '^Build (succeeded|FAILED)\.'
+        next: "summary"
+      summary:
+        keep: '^\s*\d+ (Warning|Error)\(s\)|^Result: '
+        until: '^Time Elapsed'
+        next: "start"
+  - action: "replace"
+    pattern: '\[(?:[^\]]*[\\/])?([^\\/\]]+\.[A-Za-z]+proj(?:::[^\]]*)?)\]$'
+    replacement: '[${1}]'
+  - action: "group_by"
+    pattern: '\bwarning\s+([A-Za-z]+\d+)\s*:'
+    top: 20
+    format: "  warning {{.Key}} x{{.Count}} (text collapsed; full: snip proxy -- <cmd>)"
+    append: true
+  - action: "remove_lines"
+    pattern: '\bwarning\s+[A-Za-z]+\d+\s*:'
+  - action: "truncate_lines"
+    max: 300
+  - action: "head"
+    n: 60
+    overflow_msg: "... more lines (truncated by snip; full: snip proxy -- <cmd>)"
+
+on_error: "passthrough"
+
+tests:
+  - name: "normal verbosity: summary duplicates dropped, warnings collapsed"
+    input: |
+      MSBuild version 17.14.40+3e7442088 for .NET Framework
+        Tap.cpp
+      C:\r\gen\A.h(6501,44): warning C4002: too many arguments for 'GetCurrentTime' [C:\r\x\Tap.vcxproj]
+        (compiling source file '/Tap.cpp')
+      C:\r\gen\A.h(6506,44): warning C4002: too many arguments for 'GetCurrentTime' [C:\r\x\Tap.vcxproj]
+      C:\r\x\Tap.cpp(1665,10): error C2039: 'function': is not a member of 'std' [C:\r\x\Tap.vcxproj]
+        Tap.vcxproj -> C:\r\x64\Debug\Tap.dll
+        App -> C:\r\bin\App.exe
+
+      Build FAILED.
+
+      "C:\r\App.sln" (default target) (1) ->
+        C:\r\gen\A.h(6501,44): warning C4002: too many arguments for 'GetCurrentTime' [C:\r\x\Tap.vcxproj]
+        C:\r\x\Tap.cpp(1665,10): error C2039: 'function': is not a member of 'std' [C:\r\x\Tap.vcxproj]
+
+          2 Warning(s)
+          1 Error(s)
+
+      Time Elapsed 00:00:12.34
+    expected: |
+      C:\r\x\Tap.cpp(1665,10): error C2039: 'function': is not a member of 'std' [Tap.vcxproj]
+        App -> C:\r\bin\App.exe
+          2 Warning(s)
+          1 Error(s)
+      Result: Build FAILED
+        warning C4002 x2 (text collapsed; full: snip proxy -- <cmd>)
+  - name: "quiet verbosity: column-0 summary duplicates dropped"
+    input: |
+      C:\r\a.cs(1,26): warning CS0168: The variable 'x' is declared but never used [C:\r\p.csproj]
+      C:\r\a.cs(1,49): error CS0103: The name 'Undefined' does not exist in the current context [C:\r\p.csproj]
+
+      Build FAILED.
+
+      C:\r\a.cs(1,26): warning CS0168: The variable 'x' is declared but never used [C:\r\p.csproj]
+      C:\r\a.cs(1,49): error CS0103: The name 'Undefined' does not exist in the current context [C:\r\p.csproj]
+          1 Warning(s)
+          1 Error(s)
+
+      Time Elapsed 00:00:01.57
+    expected: |
+      C:\r\a.cs(1,49): error CS0103: The name 'Undefined' does not exist in the current context [p.csproj]
+          1 Warning(s)
+          1 Error(s)
+      Result: Build FAILED
+        warning CS0168 x1 (text collapsed; full: snip proxy -- <cmd>)
+  - name: "second build after Time Elapsed is still filtered"
+    input: |
+      Build succeeded.
+          0 Warning(s)
+          0 Error(s)
+      Time Elapsed 00:00:01.00
+      C:\r\b.cs(3,1): error CS1002: ; expected [C:\r\b.csproj]
+      Build FAILED.
+      C:\r\b.cs(3,1): error CS1002: ; expected [C:\r\b.csproj]
+          0 Warning(s)
+          1 Error(s)
+      Time Elapsed 00:00:02.00
+    expected: |2
+          0 Warning(s)
+          0 Error(s)
+      C:\r\b.cs(3,1): error CS1002: ; expected [b.csproj]
+          0 Warning(s)
+          1 Error(s)
+      Result: Build FAILED
+  - name: "linker, command-line and MSB errors are kept"
+    input: |
+      LINK : fatal error LNK1104: cannot open file 'x.lib' [C:\r\a.vcxproj]
+      cl : command line error D8021: invalid numeric argument '/Wfoo' [C:\r\a.vcxproj]
+      C:\sdk\Microsoft.Common.targets(5,5): error MSB3073: The command "x" exited with code 1. [C:\r\b.csproj]
+      Build failed with exit code 1. Check errors above.
+    expected: |
+      LINK : fatal error LNK1104: cannot open file 'x.lib' [a.vcxproj]
+      cl : command line error D8021: invalid numeric argument '/Wfoo' [a.vcxproj]
+      C:\sdk\Microsoft.Common.targets(5,5): error MSB3073: The command "x" exited with code 1. [b.csproj]
+      Build failed with exit code 1. Check errors above.
+      Result: Build FAILED
+  - name: "compiler command lines with /errorreport: or /warn: are not diagnostics"
+    input: |2
+        C:\sdk\csc.exe /noconfig /errorreport:prompt /warn:8 /define:TRACE a.cs
+        BuildResponseFile = '/errorreport:prompt /warn:8'
+      Build succeeded.
+          0 Warning(s)
+          0 Error(s)
+      Time Elapsed 00:00:01.00
+    expected: |2
+          0 Warning(s)
+          0 Error(s)
+      Result: Build succeeded

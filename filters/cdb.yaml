@@ -1,0 +1,38 @@
+# aliases: cdb.exe
+name: "cdb"
+version: 1
+description: "cdb: drop banner, module-load and symbol-path noise; keep command output"
+
+match:
+  command: "cdb"
+
+pipeline:
+  - action: "strip_ansi"
+  - action: "remove_lines"
+    pattern: '^(ModLoad:|Microsoft \(R\) Windows Debugger|Copyright \(c\) Microsoft|CommandLine:|Symbol search path is:|Executable search path is:|Loading unloaded module list|\*\*\* WARNING: Unable to verify (checksum|timestamp)|\*\*\* ERROR: (Symbol file could not be found|Module load completed but symbols could not be loaded)|\*+ (Path validation summary|Symbol Loading Error Summary) \*+|Response\s+Time \(ms\)\s+Location|(Deferred|OK)\s{2,}\S|Module name\s+Error|NatVis script)'
+  - action: "truncate_lines"
+    max: 250
+  - action: "head"
+    n: 200
+    overflow_msg: "... more lines (truncated by snip; full text: snip proxy -- <cmd>)"
+
+on_error: "passthrough"
+
+tests:
+  - name: "loader noise dropped, stack kept"
+    input: |
+      Microsoft (R) Windows Debugger Version 10.0.26100.1 AMD64
+      Copyright (c) Microsoft Corporation. All rights reserved.
+      CommandLine: C:\app\App.exe
+      ************* Path validation summary **************
+      Response                         Time (ms)     Location
+      Deferred                                       srv*
+      Symbol search path is: srv*
+      Executable search path is:
+      ModLoad: 00007ff6`1a2b0000 00007ff6`1a2d8000   App.exe
+      ModLoad: 00007fff`7f8d0000 00007fff`7fb37000   C:\WINDOWS\SYSTEM32\ntdll.dll
+      (3ddc.1f68): Unknown exception - code c0000602 (!!! second chance !!!)
+      00007fff`7fdb6400     : 0000015f`0819ba48 : KERNELBASE!RaiseFailFastException+0x188
+    expected: |
+      (3ddc.1f68): Unknown exception - code c0000602 (!!! second chance !!!)
+      00007fff`7fdb6400     : 0000015f`0819ba48 : KERNELBASE!RaiseFailFastException+0x188

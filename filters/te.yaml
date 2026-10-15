@@ -1,0 +1,49 @@
+# aliases: te.exe, TE.exe
+name: "te"
+version: 1
+description: "TAEF te.exe: failures, errors and summary only"
+
+match:
+  command: "te"
+  exclude_flags: ["/list", "-list", "/?", "-?"]
+
+streams:
+  - stdout
+  - stderr
+
+pipeline:
+  - action: "strip_ansi"
+  - action: "keep_lines"
+    pattern: '^Error:|^Warning:|^EndGroup: .*\[(Failed|Blocked|Skipped|Not Run)\]|^Non-passing Tests:|^\s+\S.*\[(Failed|Blocked|Skipped|Not Run)\]\s*$|^Summary:|^Failed to |^TAEF: |Exception'
+  - action: "truncate_lines"
+    max: 300
+  - action: "head"
+    n: 80
+    overflow_msg: "... more lines (truncated by snip; full text: snip proxy -- <cmd>)"
+
+on_error: "passthrough"
+
+tests:
+  - name: "passing groups dropped, failures and summary kept"
+    input: |
+      Test Authoring and Execution Framework v10.94k for x64
+
+      StartGroup: Ns::Cls::PassingTest
+      Verify: AreEqual(1, 1)
+      EndGroup: Ns::Cls::PassingTest [Passed]
+
+      StartGroup: Ns::Cls::FailingTest
+      Error: Verify: AreEqual(a, b) - Values (1, 2) [File: C:\r\t.cpp, Function: Ns::Cls::FailingTest, Line: 42]
+      EndGroup: Ns::Cls::FailingTest [Failed]
+
+      Non-passing Tests:
+
+          Ns::Cls::FailingTest [Failed]
+
+      Summary: Total=2, Passed=1, Failed=1, Blocked=0, Not Run=0, Skipped=0
+    expected: |
+      Error: Verify: AreEqual(a, b) - Values (1, 2) [File: C:\r\t.cpp, Function: Ns::Cls::FailingTest, Line: 42]
+      EndGroup: Ns::Cls::FailingTest [Failed]
+      Non-passing Tests:
+          Ns::Cls::FailingTest [Failed]
+      Summary: Total=2, Passed=1, Failed=1, Blocked=0, Not Run=0, Skipped=0

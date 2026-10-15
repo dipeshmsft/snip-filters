@@ -1,0 +1,16 @@
+name: verify-filters
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  verify:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install snip + filters, run snip verify
+        shell: pwsh
+        run: |
+          ./install.ps1 -InstallDir "$env:RUNNER_TEMP\snip" -Instructions Print -SkipRipgrep
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

@@ -1,0 +1,60 @@
+# Overrides the embedded git-show filter. The embedded one caps output at 45
+# lines, which silently truncates `git show <rev>:<path>` (blob content) under a
+# misleading "... more files changed" marker. git ignores the injected --stat
+# for blobs and trees, so here the output is bounded by --stat-count alone and
+# the "diffstat only" label is attached only to real commit output.
+name: "git-show"
+version: 2
+description: "git show: commit header + diffstat; rev:path blobs pass through intact"
+
+match:
+  command: "git"
+  subcommand: "show"
+  exclude_flags:
+    ["--stat", "--format", "--pretty", "--name-only", "--name-status",
+     "-p", "--patch", "-U", "--unified"]
+
+inject:
+  args: ["--stat", "--stat-count=30"]
+  skip_if_present: ["--stat", "--format", "--pretty", "--name-only", "--name-status"]
+
+pipeline:
+  - action: "strip_ansi"
+  - action: "replace"
+    pattern: '^(commit [0-9a-f]{40}\b.*)$'
+    replacement: "diffstat only, patch not produced. Full patch: git show -p <rev>\n${1}"
+
+on_error: "passthrough"
+
+tests:
+  - name: "commit output is labelled as a diffstat"
+    input: |
+      commit eb5fc8c97545f66f319143470651703aaee53991
+      Author: Repro <r@example.com>
+
+          refactor(engine): extract resultFrom
+
+       internal/engine/executor.go | 52 +++++++++++++++-----------
+       1 file changed, 32 insertions(+), 20 deletions(-)
+    expected: |
+      diffstat only, patch not produced. Full patch: git show -p <rev>
+      commit eb5fc8c97545f66f319143470651703aaee53991
+      Author: Repro <r@example.com>
+
+          refactor(engine): extract resultFrom
+
+       internal/engine/executor.go | 52 +++++++++++++++-----------
+       1 file changed, 32 insertions(+), 20 deletions(-)
+  - name: "blob content (rev:path) passes through unchanged, blank lines kept"
+    input: |
+      namespace Foo
+      {
+
+          public class Bar { }
+      }
+    expected: |
+      namespace Foo
+      {
+
+          public class Bar { }
+      }

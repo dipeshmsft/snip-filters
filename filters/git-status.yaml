@@ -1,0 +1,40 @@
+# Overrides embedded git-status: clean tree produced empty output.
+name: "git-status"
+version: 2
+description: "Compact git status: porcelain lines plus status code summary; explicit clean message"
+
+match:
+  command: "git"
+  subcommand: "status"
+  exclude_flags: ["--porcelain", "--short", "-s"]
+
+inject:
+  args: ["--porcelain"]
+  skip_if_present: ["--porcelain", "--short", "-s"]
+
+pipeline:
+  - action: "keep_lines"
+    pattern: "\\S"
+  - action: "group_by"
+    pattern: "^(.{2})"
+    format: "{{.Key}}: {{.Count}}"
+    append: true
+  - action: "on_empty"
+    message: "git status: working tree clean"
+
+on_error: "passthrough"
+
+tests:
+  - name: "porcelain lines plus summary"
+    input: |
+      M  a.cs
+      ?? b.cs
+    expected: |
+      M  a.cs
+      ?? b.cs
+      M : 1
+      ??: 1
+  - name: "clean tree"
+    input: ""
+    expected: |
+      git status: working tree clean

@@ -1,0 +1,25 @@
+name: "git-grep"
+version: 1
+description: "git grep: cap match lines and line width"
+
+match:
+  command: "git"
+  subcommand: "grep"
+  exclude_flags: ["-c", "--count", "-l", "--files-with-matches", "-L", "--files-without-match", "--name-only"]
+
+pipeline:
+  - action: "strip_ansi"
+  - action: "truncate_lines"
+    max: 200
+  - action: "head"
+    n: 100
+    overflow_msg: "... more matches (truncated by snip; narrow the pathspec or use -c / -l)"
+
+on_error: "passthrough"
+
+tests:
+  - name: "short match lines pass through"
+    input: |
+      src/a.cs:10:    var x = 1;
+    expected: |
+      src/a.cs:10:    var x = 1;

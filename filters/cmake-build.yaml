@@ -1,0 +1,47 @@
+# aliases: cmake.exe
+name: "cmake-build"
+version: 1
+description: "cmake --build: diagnostics and build summary for Ninja or MSBuild generators"
+
+match:
+  command: "cmake"
+  require_flags: ["--build"]
+
+streams:
+  - stdout
+  - stderr
+
+pipeline:
+  - action: "strip_ansi"
+  - action: "keep_lines"
+    pattern: '^\S.*\b(fatal )?(error|warning)( [A-Za-z]*\d+)?\s*:|^\S.*\bnote:|^FAILED:|^ninja: |^Build (succeeded|FAILED)|^\s*\d+ (Warning|Error)\(s\)'
+  - action: "replace"
+    pattern: '\[(?:[^\]]*[\\/])?([^\\/\]]+\.[A-Za-z]+proj)\]$'
+    replacement: '[${1}]'
+  - action: "truncate_lines"
+    max: 300
+  - action: "head"
+    n: 80
+    overflow_msg: "... more lines (truncated by snip; full text: snip proxy -- <cmd>)"
+  - action: "on_empty"
+    message: "cmake --build: ok"
+
+on_error: "passthrough"
+
+tests:
+  - name: "msbuild generator: summary duplicates (indented) dropped"
+    input: |2
+        Building Custom Rule C:/r/CMakeLists.txt
+        a.cpp
+      C:\r\a.cpp(3,1): error C2065: 'x': undeclared identifier [C:\r\build\app.vcxproj]
+
+      Build FAILED.
+
+        C:\r\a.cpp(3,1): error C2065: 'x': undeclared identifier [C:\r\build\app.vcxproj]
+          0 Warning(s)
+          1 Error(s)
+    expected: |
+      C:\r\a.cpp(3,1): error C2065: 'x': undeclared identifier [app.vcxproj]
+      Build FAILED.
+          0 Warning(s)
+          1 Error(s)

@@ -1,0 +1,42 @@
+# aliases: tf.exe, TF.exe
+name: "tf-status"
+version: 1
+description: "tf status: drop per-item User/Date/Lock/Workspace/File type metadata"
+
+match:
+  command: "tf"
+  subcommand: "status"
+
+pipeline:
+  - action: "strip_ansi"
+  - action: "remove_lines"
+    pattern: '^\s*$|^\s+(User|Date|Lock|Workspace|File type)\s*:'
+  - action: "replace"
+    pattern: '^(\s+Local item\s*:\s*)\[[^\]]+\]\s*'
+    replacement: '${1}'
+  - action: "truncate_lines"
+    max: 250
+  - action: "head"
+    n: 200
+    overflow_msg: "... more lines (truncated by snip; full text: snip proxy -- <cmd>)"
+
+on_error: "passthrough"
+
+tests:
+  - name: "detailed format reduced to path, change and local item"
+    input: |
+      $/DevDiv/FX/Rel/B/WPF/src/Core/PresentationCore.asmmeta;C1794722
+        User       : Dipesh Kumar
+        Date       : Monday, June 15, 2026 7:34:41 PM
+        Lock       : none
+        Change     : edit
+        Workspace  : dd_B
+        Local item : [DESKTOP-GMBT1DU] E:\dd\B\src\wpf\src\Core\PresentationCore.asmmeta
+        File type  : Windows-1252
+
+      1 change(s), 0 detected change(s)
+    expected: |
+      $/DevDiv/FX/Rel/B/WPF/src/Core/PresentationCore.asmmeta;C1794722
+        Change     : edit
+        Local item : E:\dd\B\src\wpf\src\Core\PresentationCore.asmmeta
+      1 change(s), 0 detected change(s)

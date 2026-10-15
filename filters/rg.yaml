@@ -1,0 +1,28 @@
+# aliases: rg.exe
+# Overrides embedded rg filter: embedded overflow_msg hides how many lines were cut.
+name: "rg"
+version: 2
+description: "Condensed ripgrep output: truncate long lines, cap results with count"
+
+match:
+  command: "rg"
+
+pipeline:
+  - action: "strip_ansi"
+  - action: "truncate_lines"
+    max: 200
+  - action: "head"
+    n: 80
+
+on_error: "passthrough"
+
+tests:
+  - name: "caps with count"
+    input: |
+      a
+      b
+      c
+    expected: |
+      a
+      b
+      c
