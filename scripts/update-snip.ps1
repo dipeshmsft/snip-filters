@@ -27,7 +27,14 @@ $target = Join-Path $InstallDir 'snip.exe'
 
 $api = if ($Version -eq 'latest') { "https://api.github.com/repos/$repo/releases/latest" }
        else { "https://api.github.com/repos/$repo/releases/tags/$Version" }
-$release = Invoke-RestMethod $api
+$headers = @{}
+$token = if ($env:GITHUB_TOKEN) { $env:GITHUB_TOKEN } else { $env:GH_TOKEN }
+if ($token) { $headers.Authorization = "Bearer $token" }
+try {
+    $release = Invoke-RestMethod $api -Headers $headers
+} catch {
+    throw "Cannot query $api ($($_.Exception.Message)). Check network/proxy access to api.github.com; if rate-limited, set `$env:GITHUB_TOKEN. Or download snip.exe manually (README Troubleshooting)."
+}
 $tag = $release.tag_name
 $arch = if ($env:PROCESSOR_ARCHITECTURE -eq 'ARM64') { 'arm64' } else { 'amd64' }
 $zipName = "snip_$($tag.TrimStart('v'))_windows_$arch.zip"

@@ -6,7 +6,7 @@ Prefix **external executables** with snip to reduce token usage: `{{SNIP}} -- <e
 ```
 {{SNIP}} -- git status
 {{SNIP}} -- dotnet build App.csproj
-& {{SNIP}} -- 'C:\Program Files\...\MSBuild.exe' App.sln
+{{SNIP_AMP}} -- 'C:\Program Files\...\MSBuild.exe' App.sln
 ```
 
 Do NOT use snip for PowerShell cmdlets (Get-ChildItem, Get-Content, Select-String, ...),
